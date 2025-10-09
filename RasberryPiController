@@ -1,0 +1,35 @@
+import serial
+import time
+
+try:
+    # Establish Serial Port
+    arduino = serial.Serial(port='COM3', baudrate=9600)
+
+    # Attempt to communicate over port
+    # If port can not be connected to SerialException gets thrown
+    print("Connecting...")
+    time.sleep(1)
+    print("Connected to Arduino (Press 'x' to exit loop)")
+    arduino.read_all()
+
+    # Store message
+    arduino_out = ""
+
+    # Start communication loop
+    # TEMP break loop with x key
+    while arduino_out != "x":
+        # Grab command from input, eventually this will be replaced with input from mission control laptop
+        arduino_out = input("Enter a command: ")
+        if(arduino_out == 'x'):
+            break
+
+        # Send arduino the command in bytes over serial
+        arduino.write(arduino_out.encode("utf-8"))
+        # Wait for response back from arduino
+        time.sleep(0.2)
+        # Print response
+        arduino_in = arduino.read_all()
+        print(arduino_in.decode("utf-8"))
+
+except(serial.SerialException):
+    print("Unable to connect")
