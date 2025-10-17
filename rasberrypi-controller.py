@@ -1,16 +1,20 @@
-import serial
+# Standard Imports
 import time
 import socket
 
+# Third Part Imports
+import serial
+
+# Create server socket and wait until a client connects to it
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind(("10.16.62.101", 60500))
-
 server_socket.listen()
 print("Waiting for connection")
 
+# Identify the client
 client_socket, addr = server_socket.accept()
 print("Client connected at " + str(addr))
-      
+
 try:
     # Establish Serial Port
     arduino = serial.Serial(port='COM3', baudrate=9600)
@@ -28,9 +32,8 @@ try:
     # Start communication loop
     # TEMP break loop with x key
     while arduino_out != "x":
-        # Grab command from input, eventually this will be replaced with input from mission control laptop
         arduino_out = client_socket.recv(1024).decode().strip()
-        if(arduino_out == 'x'):
+        if arduino_out == 'x':
             break
 
         # Send arduino the command in bytes over serial
@@ -42,5 +45,9 @@ try:
         print(arduino_in.decode("utf-8"))
         client_socket.sendall(arduino_in)
 
-except(serial.SerialException):
+except serial.SerialException:
     print("Unable to connect")
+
+except ConnectionError:
+    print("Client Disconnected")
+
