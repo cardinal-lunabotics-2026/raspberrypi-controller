@@ -24,7 +24,7 @@ def connection_loop(arduino:serial.Serial, client_socket:socket.socket) -> bool:
         return False
     arduino.write(arduino_out.encode("utf-8"))
 
-    time.sleep(0.2)
+    time.sleep(0.1)
 
     # Read output from arduino and send to client
     arduino_in = arduino.read_all()
