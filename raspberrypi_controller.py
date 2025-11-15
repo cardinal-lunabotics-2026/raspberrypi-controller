@@ -20,11 +20,14 @@ def connection_loop(arduino:serial.Serial, client_socket:socket.socket) -> bool:
     '''
     # Grab input from client and send to Arduino
     arduino_out = client_socket.recv(1024).decode().strip()
-    if arduino_out == 'x':
-        return False
-    arduino.write(arduino_out.encode("utf-8"))
+    for line in arduino_out.split(sep="@"):
+        if line is not None:
+            line += "\n"
+            arduino.write(line.encode("utf-8"))
+        if  line == 'x':
+            return False
 
-    time.sleep(0.1)
+    time.sleep(0.05)
 
     # Read output from arduino and send to client
     arduino_in = arduino.read_all()
