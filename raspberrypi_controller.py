@@ -13,17 +13,32 @@ import socket
 # Third Part Imports
 import serial
 
+control_lookup_table = {
+    "dph": 0,
+    "dpv": 1,
+    "btna": 2,
+    "btnb": 3,
+    "btny": 4,
+    "btnx": 5,
+    "lsx": 6,
+    "lsy": 7,
+    "rsx": 8,
+    "rsy": 9
+}
+
 def connection_loop(arduino:serial.Serial, client_socket:socket.socket) -> bool:
     '''
     Main communication loop with Arduino, RaspberryPi, and mission control PC
 
     '''
-    # Grab input from client and send to Arduino
+    # Grab input from client and send to Arduino    
     arduino_out = client_socket.recv(1024).decode().strip()
     for line in arduino_out.split(sep="@"):
-        if line is not None:
-            line += "\n"
-            arduino.write(line.encode("utf-8"))
+        if line is not None and line != "\n" and line != "" and line != " ":
+            print(line)
+            control, value = line.split(sep=",")
+            control_number = control_lookup_table[control]
+            arduino.write((str(control_number) + "," + str(value) + "\n").encode('utf-8'))
         if  line == 'x':
             return False
 
