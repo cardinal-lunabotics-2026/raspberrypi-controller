@@ -14,21 +14,19 @@ import socket
 import serial
 
 control_lookup_table = {
-    "dph": 0,
     "dpv": 1,
-    "btna": 2,
-    "btnb": 3,
-    "btny": 4,
-    "btnx": 5,
-    "lsx": 6,
-    "lsy": 7,
-    "rsx": 8,
-    "rsy": 9
+    "dph": 2,
+    "btna": 3,
+    "btnb": 4,
+    "btny": 5,
+    "btnx": 6
 }
 
 def connection_loop(arduino:serial.Serial, client_socket:socket.socket) -> bool:
     '''
     Main communication loop with Arduino, RaspberryPi, and mission control PC
+    
+    [SWAP THE INPUT GATHERING PART FOR TAUSIF'S]
 
     '''
     # Grab input from client and send to Arduino    
@@ -71,7 +69,7 @@ def initialize_arduino() -> serial.Serial:
     '''
 
     # Open Arduino serial port and return the port
-    arduino = serial.Serial(port='COM3', baudrate=9600)
+    arduino = serial.Serial(port='COM5', baudrate=9600)
     print("Connecting to Arduino...")
     time.sleep(1)
     print("Connected to Arduino")
