@@ -2,8 +2,9 @@
 The RaspberryPi controller. Interfaces with the Arduino via serial,
     and the mission control PC over a wireless TCP connection.
 Made: 10/9/25
-Edited: 10/23/25
+Edited: 10/02/26
 Authors: James Meyers
+Co-Author: Tausif Ahmed
 '''
 
 # Standard Imports
