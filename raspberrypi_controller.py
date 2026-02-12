@@ -41,7 +41,6 @@ def find_serial_port () -> str:
         raise RuntimeError("No Arduino detected (/dev/ttyACM* or /dev/ttyUSB*).")
     return ports[0]
 
-
 def initialize_arduino() -> serial.Serial:
     '''
     Starts connection setup for Arduino on the Pi.
@@ -178,6 +177,7 @@ if __name__ == '__main__':
                 except Exception:
                     pass
                 arduino_state = 1
+                arduino_recconect_counter = 0
 
             if connection_loop(arduino, client_socket) is False:
                 break
