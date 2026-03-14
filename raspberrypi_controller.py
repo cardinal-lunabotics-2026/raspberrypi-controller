@@ -40,26 +40,26 @@ def initialize_arduino() -> list:
     # Open Arduino serial port and return the port
     # Assign the auto-detected Arduino port
     ports = find_serial_ports()
-    back_arduino = front_arduino = linear_arduino = None
+    right_arduino = left_arduino = linear_arduino = None
     for port in ports:
         temp = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
         time.sleep(2)
         response = temp.read_until('\n').decode('utf-8').strip()
-        if response == "Back":
-            back_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
-        elif response == "Front":
-            front_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
-        elif response == "Linear":
+        if response == "right":
+            right_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        elif response == "left":
+            left_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        elif response == "linear":
             linear_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
         print(f"Connecting to {response}-Arduino on {port}...")
 
     # allow Arduino to reset
     time.sleep(2)
-    back_arduino.reset_input_buffer()
-    front_arduino.reset_input_buffer()
+    right_arduino.reset_input_buffer()
+    left_arduino.reset_input_buffer()
     linear_arduino.reset_input_buffer()
     print("Connected to Arduinos")
-    return back_arduino, front_arduino, linear_arduino
+    return right_arduino, left_arduino, linear_arduino
 
 def initialize_connection(server_socket: socket.socket) -> socket.socket:
     '''
@@ -76,7 +76,7 @@ def initialize_connection(server_socket: socket.socket) -> socket.socket:
     print("Client connected at " + str(addr))
     return client_socket
 
-def connection_loop(back_arduino: serial.Serial, front_arduino: serial.Serial, linear_arduino: serial.Serial, client_socket: socket.socket) -> bool:
+def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, linear_arduino: serial.Serial, client_socket: socket.socket) -> bool:
     '''
     Main communication loop with Arduino, RaspberryPi, and mission control PC
 
@@ -123,8 +123,8 @@ def connection_loop(back_arduino: serial.Serial, front_arduino: serial.Serial, l
             continue
 
         if target_group is "0":
-            front_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
-            back_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
+            left_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
+            right_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
         elif target_group is "1":
             linear_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
         elif target_group is "3":
@@ -136,17 +136,18 @@ def connection_loop(back_arduino: serial.Serial, front_arduino: serial.Serial, l
     time.sleep(0.05)
 
     # Read output from Arduino and send to client
-    #arduino_in = arduino.read_all()
+    if right_arduino.in_waiting > 0:
+        right_arduino_output = right_arduino.readline().decode('utf-8')
+        print(f"[Right Arduino]: {right_arduino_output}")
+    if left_arduino.in_waiting > 0:
+        left_arduino_output = left_arduino.readline().decode('utf-8')
+        print(f"[Left Arduino]: {left_arduino_output}")
+    if linear_arduino.in_waiting > 0:
+        linear_arduino_output = linear_arduino.readline().decode('utf-8')
+        print(f"[Linear Arduino]: {linear_arduino_output}")
 
     # A small exception handler in case arduino_in is empty (sendall can throw if the client disconnects;
     # this guards it so the loop survives reconnects.”)
-    #if arduino_in:
-    #    try:
-    #        client_socket.sendall(arduino_in)
-    #    except Exception:
-    #        pass
-
-
 
 if __name__ == '__main__':
     # Create Server
@@ -173,7 +174,7 @@ if __name__ == '__main__':
                 client_state = 1
 
             if arduino_state == 0:
-                back_arduino, front_arduino, linear_arduino = initialize_arduino()
+                right_arduino, left_arduino, linear_arduino = initialize_arduino()
                 # Simple exception handler in case MCC disconnects at any moment, it prevents a crash during reconnection
                 try:
                     client_socket.sendall("Arduinos Connected".encode('utf-8'))
@@ -182,7 +183,7 @@ if __name__ == '__main__':
                 arduino_state = 1
                 arduino_recconect_counter = 0
 
-            if connection_loop(back_arduino, front_arduino, linear_arduino, client_socket) is False:
+            if connection_loop(right_arduino, left_arduino, linear_arduino, client_socket) is False:
                 break
         # changed a couple of things to make the errors print the reasons
         except serial.SerialException as e:
