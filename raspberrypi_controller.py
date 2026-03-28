@@ -10,54 +10,69 @@ Co-Author: Tausif Ahmed
 # Standard Imports
 import time
 import socket
+import glob
 
 # Third Part Imports
 import serial
 
-# glob is used to look for the ACM/USB (Arduino port)
-import glob
-
-# listen on all interfaces, so MCC can connect over Wi-Fi/Ethernet
-HOST = "0.0.0.0"
+# Constants
+HOST = "0.0.0.0" # listen on all interfaces, so MCC can connect over Wi-Fi/Ethernet
 PORT = 60500 # Must match what MCC is trying to connect to
-BAUD = 9600
+BAUD = 57600 # Higher = faster Arduino response, but going past a certain point can increase instability
 
-# MAIN CONTROLS MAP
-control_lookup_table = {
-    "dpv": 1,
-    "dph": 2,
-    "btna": 3,
-    "btnb": 4,
-    "btny": 5,
-    "btnx": 6
-}
+# Global Vars
+start_time = time.perf_counter() * 1000
 
-# Arduino port lookup
-# Note: rather than hardcoding the port name, it will now look for the serial port (in case the name changes)
-def find_serial_port () -> str:
+def find_serial_ports () -> list[str]:
+    '''
+    Finds the names of the USB ports that the Arduinos use
+    '''
+
     # Auto-detect the Arduino serial port on Pi
     ports = glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")
     if not ports:
         raise RuntimeError("No Arduino detected (/dev/ttyACM* or /dev/ttyUSB*).")
-    return ports[0]
+    return ports
 
-def initialize_arduino() -> serial.Serial:
+def initialize_arduino() -> list:
     '''
-    Starts connection setup for Arduino on the Pi.
-    Note: if the Arduino is disconnected in any way, it cannot be reconnected!
-    Update: If Arduino is unplugged, we re-detect the port and reconnect.
+    Starts connection setup for Arduinos on the PI.
+    Searches through the list of Arduinos and identifies them based of off
+    what they return when powered on.
+    Also checks that they both are working and connected.
     '''
+
     # Open Arduino serial port and return the port
-    # Assign the auto-detected Arduino port
-    port = find_serial_port()
-    print(f"Connecting to Arduino on {port}...")
-    arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+    # Assign the auto-detected Arduino ports
+    ports = find_serial_ports()
+    right_arduino = left_linear_arduino = None
+    # Searching through the ports
+    for port in ports:
+        temp = serial.serial_for_url(url=port, baudrate=BAUD, timeout=0.1, do_not_open = True)
+        # Sometimes the Arduinos keep running after being reset, this just manually resets them to clear the input stream so that they can be identified.
+        temp.dtr = False
+        temp.rts = False
+        temp.open()
+        temp.reset_input_buffer()
+        time.sleep(0.1)
+        temp.dtr = True
+        temp.rts = True
+        time.sleep(2)
+        # Get the response which identifies the arduino as either right or left.
+        response = temp.read_until('\n').decode('utf-8').strip()
+        if response == "right":
+            right_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        elif response == "leftlinear":
+            left_linear_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        print(f"Connecting to {response}-Arduino on {port}...")
 
-    # allow Arduino to reset
-    time.sleep(2)
-    arduino.reset_input_buffer()
-    print("Connected to Arduino")
-    return arduino
+    # Allow Arduinos to reset
+    time.sleep(1)
+    # Tests that they are indeed connecected.
+    right_arduino.reset_input_buffer()
+    left_linear_arduino.reset_input_buffer()
+    print("Connected to Arduinos")
+    return right_arduino, left_linear_arduino
 
 def initialize_connection(server_socket: socket.socket) -> socket.socket:
     '''
@@ -72,78 +87,93 @@ def initialize_connection(server_socket: socket.socket) -> socket.socket:
     # Handshake with client and return the socket
     client_socket, addr = server_socket.accept()
     print("Client connected at " + str(addr))
+
+    # Stops the connection loop from waiting for a input from the MCC allowing data to freely move up to it.
+    client_socket.setblocking(False)
+
     return client_socket
 
-def connection_loop(arduino: serial.Serial, client_socket: socket.socket) -> bool:
+def connection_loop(right_arduino: serial.Serial, left_linear_arduino: serial.Serial, client_socket: socket.socket) -> bool:
     '''
     Main communication loop with Arduino, RaspberryPi, and mission control PC
-
-    [SWAP THE INPUT GATHERING PART FOR TAUSIF'S]
-
     '''
+
+    # Used for syncing the heartbeat
+    global start_time
 
     # Grab input from client and send to Arduino
     # TCP data can include a partial multi-byte character or random bytes (rare, but it happens).
     # .decode() can throw a UnicodeDecodeError and crash the loop
     # "errors=ignore" keeps the bridge running even if one packet contains a weird byte
-    arduino_out = client_socket.recv(1024).decode(errors="ignore").strip()
+    try:
+        arduino_out = client_socket.recv(1024).decode(errors="ignore").strip()
+        # Once again just stops the loop from waiting for a input
+    except BlockingIOError:
+        arduino_out = ""
 
+    # Seperates lumped up commands into one-liners
     for line in arduino_out.split(sep="@"):
-        # same logic and same output, but less brittle
         line = line.strip()
 
+         # Stops empty lines from messing anything up
         if not line:
             continue
-        # it was running after the mapping block
-        # so if the line is not formatted correctly, it can fail before reaching 'x.'
-        # now it will check the format before parsing/mapping (safer exit path even if other parts of the message are corrupted)
-        if line == 'x':
-            return False
 
         # comma check (to prevent crashes)
-        # TCP does not guarantee to receive the full message properly
+        # UDP does not guarantee to receive the full message properly
         # now instead of crashing, it logs and skips that part
-        if "," not in line:
-            print(f"[Pi] Bad line (no comma): {line}")
+        if "," not in line and ";" not in line:
+            print(f"[Pi] Bad line (no comma or semicolon): {line}")
             continue
 
         # "1" to limit the number of splits, in case there is an extra comma
-        control, value = line.split(",", 1)
-        control = control.strip()
-        value = value.strip()
+        # Also ensures that arriving data is in correct format
+        values, target_group = line.split(';', 1)
+        values = values.strip()
+        # Target groups replaced the lookup table as we are using the sticks primarily for everything.
+        # Target groups 0 is for driving, 1 is for bucket movement, 2 or greater can be for other buttons if needed.
+        target_group = target_group.strip()
+        values = values.split(',', 1)
 
-        # rather than taking anything that comes from the socket as a string
-        # Now it sanitizes the input so Arduino receives clean integer commands (-1, 0, 1)
-        # prevents crash if a bad value comes in
-
-        if control not in control_lookup_table:
-            print(f"[Pi] Unknown control: {control}")
-            continue
-
+        # Checks if the stick postitions are a integer as everything on the Arduino assumes that.
         try:
-            ivalue = int(float(value))
+            ivalue = int(float(values[0]))
+            ivalue = int(float(values[1]))
         except ValueError:
-            print(f"[Pi] Bad value: {value} in line {line}")
+            print(f"[Pi] Bad value: {ivalue} in line {line}")
             continue
 
-        control_number = control_lookup_table[control]
-        arduino.write(f"{control_number},{ivalue}\n".encode('utf-8'))
-        print(f"{control},{ivalue} -> {control_number}, {ivalue}")
+        # Use target group to determine destination
+        # The left Arduino also controls the linear actuators so we send a 0 or 1 to tell it to move either or.
+        if target_group is "0":
+            left_linear_arduino.write(f"0,{values[0],values[1]}\n".encode('utf-8'))
+            right_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
+        elif target_group is "1":
+            left_linear_arduino.write(f"1,{values[0],values[1]}\n".encode('utf-8'))
+        elif target_group is "2":
+            return False
 
-    time.sleep(0.05)
+
+        print(f"Target Group: {target_group}, Values: {values}")
+
+    # Sleep for a millisecond to allow data to be properly updated and sent, this may have to be increased but works for now.
+    time.sleep(0.001)
 
     # Read output from Arduino and send to client
-    arduino_in = arduino.read_all()
+    if right_arduino.in_waiting > 0:
+        right_arduino_output = right_arduino.readline().decode('utf-8')
+        print(f"[Right Arduino]: {right_arduino_output}")
+        client_socket.sendall(f"[Right Arduino]: {right_arduino_output}".encode('utf-8'))
+    if left_linear_arduino.in_waiting > 0:
+        left_arduino_output = left_linear_arduino.readline().decode('utf-8')
+        print(f"[Left Arduino]: {left_arduino_output}")
+        client_socket.sendall(f"[Left Arduino]: {left_arduino_output}".encode('utf-8'))
 
-    # A small exception handler in case arduino_in is empty (sendall can throw if the client disconnects;
-    # this guards it so the loop survives reconnects.”)
-    if arduino_in:
-        try:
-            client_socket.sendall(arduino_in)
-        except Exception:
-            pass
-
-
+    # Used to send the heartbeat every 100 ms, may not be neccesary as the data from the arduinos could serve the same purpose
+    if (time.perf_counter() * 1000) - start_time > 100:
+        print("RPI Alive")
+        client_socket.sendall("RPI Alive".encode('utf-8'))
+        start_time = time.perf_counter() * 1000
 
 if __name__ == '__main__':
     # Create Server
@@ -170,17 +200,18 @@ if __name__ == '__main__':
                 client_state = 1
 
             if arduino_state == 0:
-                arduino = initialize_arduino()
+                right_arduino, left_linear_arduino = initialize_arduino()
                 # Simple exception handler in case MCC disconnects at any moment, it prevents a crash during reconnection
                 try:
-                    client_socket.sendall("Arduino Connected".encode('utf-8'))
+                    client_socket.sendall("Arduinos Connected".encode('utf-8'))
                 except Exception:
                     pass
                 arduino_state = 1
                 arduino_recconect_counter = 0
 
-            if connection_loop(arduino, client_socket) is False:
-                break
+            if connection_loop(right_arduino, left_linear_arduino, client_socket) is False:
+                client_socket.close()
+                client_state = 0
         # changed a couple of things to make the errors print the reasons
         except serial.SerialException as e:
             if arduino_recconect_counter > 5:
