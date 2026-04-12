@@ -34,7 +34,7 @@ def find_serial_ports () -> list[str]:
         raise RuntimeError("No Arduino detected (/dev/ttyACM* or /dev/ttyUSB*).")
     return ports
 
-def initialize_arduino() -> list:
+def initialize_arduino() -> tuple:
     '''
     Starts connection setup for Arduinos on the PI.
     Searches through the list of Arduinos and identifies them based of off
@@ -45,7 +45,7 @@ def initialize_arduino() -> list:
     # Open Arduino serial port and return the port
     # Assign the auto-detected Arduino ports
     ports = find_serial_ports()
-    right_arduino = left_linear_arduino = None
+    right_arduino = left_arduino = linear_arduino = None
     # Searching through the ports
     for port in ports:
         temp = serial.serial_for_url(url=port, baudrate=BAUD, timeout=0.1, do_not_open = True)
@@ -58,21 +58,25 @@ def initialize_arduino() -> list:
         temp.dtr = True
         temp.rts = True
         time.sleep(2)
-        # Get the response which identifies the arduino as either right or left.
-        response = temp.read_until('\n').decode('utf-8').strip()
+        # Get the response which identifies the arduino as either right, left or linear.
+        response = temp.read_until(b'\n').decode('utf-8').strip()
         if response == "right":
             right_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
-        elif response == "leftlinear":
-            left_linear_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        elif response == "left":
+            left_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        elif response == "linear":
+            linear_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
+        
         print(f"Connecting to {response}-Arduino on {port}...")
 
     # Allow Arduinos to reset
     time.sleep(1)
     # Tests that they are indeed connecected.
     right_arduino.reset_input_buffer()
-    left_linear_arduino.reset_input_buffer()
+    left_arduino.reset_input_buffer()
+    linear_arduino.reset_input_buffer()
     print("Connected to Arduinos")
-    return right_arduino, left_linear_arduino
+    return right_arduino, left_arduino, linear_arduino
 
 def initialize_connection(server_socket: socket.socket) -> socket.socket:
     '''
@@ -93,7 +97,7 @@ def initialize_connection(server_socket: socket.socket) -> socket.socket:
 
     return client_socket
 
-def connection_loop(right_arduino: serial.Serial, left_linear_arduino: serial.Serial, client_socket: socket.socket) -> bool:
+def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, linear_arduino: serial.Serial, client_socket: socket.socket) -> bool:
     '''
     Main communication loop with Arduino, RaspberryPi, and mission control PC
     '''
@@ -146,10 +150,10 @@ def connection_loop(right_arduino: serial.Serial, left_linear_arduino: serial.Se
         # Use target group to determine destination
         # The left Arduino also controls the linear actuators so we send a 0 or 1 to tell it to move either or.
         if target_group is "0":
-            left_linear_arduino.write(f"0,{values[0],values[1]}\n".encode('utf-8'))
+            left_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
             right_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
         elif target_group is "1":
-            left_linear_arduino.write(f"1,{values[0],values[1]}\n".encode('utf-8'))
+            linear_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
         elif target_group is "2":
             return False
 
@@ -164,10 +168,16 @@ def connection_loop(right_arduino: serial.Serial, left_linear_arduino: serial.Se
         right_arduino_output = right_arduino.readline().decode('utf-8')
         print(f"[Right Arduino]: {right_arduino_output}")
         client_socket.sendall(f"[Right Arduino]: {right_arduino_output}".encode('utf-8'))
-    if left_linear_arduino.in_waiting > 0:
-        left_arduino_output = left_linear_arduino.readline().decode('utf-8')
+
+    if left_arduino.in_waiting > 0:
+        left_arduino_output = left_arduino.readline().decode('utf-8')
         print(f"[Left Arduino]: {left_arduino_output}")
         client_socket.sendall(f"[Left Arduino]: {left_arduino_output}".encode('utf-8'))
+
+    if linear_arduino.in_waiting > 0:
+        linear_arduino_output = linear_arduino.readline().decode('utf-8')
+        print(f"[Linear Arduino]: {linear_arduino_output}")
+        client_socket.sendall(f"[Linear Arduino]: {linear_arduino_output}".encode('utf-8'))
 
     # Used to send the heartbeat every 100 ms, may not be neccesary as the data from the arduinos could serve the same purpose
     if (time.perf_counter() * 1000) - start_time > 100:
@@ -200,7 +210,7 @@ if __name__ == '__main__':
                 client_state = 1
 
             if arduino_state == 0:
-                right_arduino, left_linear_arduino = initialize_arduino()
+                right_arduino, left_arduino, linear_arduino = initialize_arduino()
                 # Simple exception handler in case MCC disconnects at any moment, it prevents a crash during reconnection
                 try:
                     client_socket.sendall("Arduinos Connected".encode('utf-8'))
@@ -209,7 +219,7 @@ if __name__ == '__main__':
                 arduino_state = 1
                 arduino_recconect_counter = 0
 
-            if connection_loop(right_arduino, left_linear_arduino, client_socket) is False:
+            if connection_loop(right_arduino, left_arduino, linear_arduino, client_socket) is False:
                 client_socket.close()
                 client_state = 0
         # changed a couple of things to make the errors print the reasons
