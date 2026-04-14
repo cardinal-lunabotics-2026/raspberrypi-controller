@@ -59,7 +59,7 @@ def initialize_arduino() -> tuple:
         temp.rts = True
         time.sleep(2)
         # Get the response which identifies the arduino as either right, left or linear.
-        response = temp.read_until(b'\n').decode('utf-8').strip()
+        response = temp.read_until('\n').decode('utf-8').strip()
         if response == "right":
             right_arduino = serial.Serial(port=port, baudrate=BAUD, timeout=0.1)
         elif response == "left":
@@ -150,10 +150,10 @@ def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, l
         # Use target group to determine destination
         # The left Arduino also controls the linear actuators so we send a 0 or 1 to tell it to move either or.
         if target_group is "0":
-            left_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
-            right_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
+            left_arduino.write(f"{values[0]},{values[1]}\n".encode('utf-8'))
+            right_arduino.write(f"{values[0]},{values[1]}\n".encode('utf-8'))
         elif target_group is "1":
-            linear_arduino.write(f"{values[0],values[1]}\n".encode('utf-8'))
+            linear_arduino.write(f"{values[0]},{values[1]}\n".encode('utf-8'))
         elif target_group is "2":
             return False
 
