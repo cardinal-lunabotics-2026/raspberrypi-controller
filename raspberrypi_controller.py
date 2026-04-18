@@ -132,17 +132,17 @@ def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, l
 
         # "1" to limit the number of splits, in case there is an extra comma
         # Also ensures that arriving data is in correct format
-        values, target_group = line.split(';', 1)
-        values = values.strip()
         # Target groups replaced the lookup table as we are using the sticks primarily for everything.
         # Target groups 0 is for driving, 1 is for bucket movement, 2 or greater can be for other buttons if needed.
+        values, target_group = line.split(';', 1)
+        values = values.strip()
         target_group = target_group.strip()
-        values = values.split(',', 1)
+        left_stick_mapped, right_stick_mapped = map_to_torque(values)
 
         # Checks if the stick postitions are a integer as everything on the Arduino assumes that.
         try:
-            ivalue = int(float(values[0]))
-            ivalue = int(float(values[1]))
+            ivalue = int(float(left_stick_mapped))
+            ivalue = int(float(right_stick_mapped))
         except ValueError:
             print(f"[Pi] Bad value: {ivalue} in line {line}")
             continue
@@ -150,15 +150,15 @@ def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, l
         # Use target group to determine destination
         # The left Arduino also controls the linear actuators so we send a 0 or 1 to tell it to move either or.
         if target_group is "0":
-            left_arduino.write(f"{values[0]},{values[1]}\n".encode('utf-8'))
-            right_arduino.write(f"{values[0]},{values[1]}\n".encode('utf-8'))
+            left_arduino.write(f"{left_stick_mapped}\n".encode('utf-8'))
+            right_arduino.write(f"{right_stick_mapped}\n".encode('utf-8'))
         elif target_group is "1":
-            linear_arduino.write(f"{values[0]},{values[1]}\n".encode('utf-8'))
+            linear_arduino.write(f"{left_stick_mapped},{right_stick_mapped}\n".encode('utf-8'))
         elif target_group is "2":
             return False
 
 
-        print(f"Target Group: {target_group}, Values: {values}")
+        print(f"Target Group: {target_group}, Left Stick: {left_stick_mapped}, Right Stick: {right_stick_mapped}")
 
     # Sleep for a millisecond to allow data to be properly updated and sent, this may have to be increased but works for now.
     time.sleep(0.001)
@@ -181,9 +181,18 @@ def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, l
 
     # Used to send the heartbeat every 100 ms, may not be neccesary as the data from the arduinos could serve the same purpose
     if (time.perf_counter() * 1000) - start_time > 100:
-        print("RPI Alive")
         client_socket.sendall("RPI Alive".encode('utf-8'))
         start_time = time.perf_counter() * 1000
+
+def map_to_torque(values: list[str]) -> list[str]:
+    '''
+    Maps -32678 <-> 32676 to -30 <-> 30
+    '''
+
+    values = values.split(',', 1)
+    left_stick_mapped = -30 + (((int(values[0])+32676)*60)/65354)
+    right_stick_mapped = -30 + (((int(values[1])+32676)*60)/65354)
+    return int(left_stick_mapped), int(right_stick_mapped)
 
 if __name__ == '__main__':
     # Create Server
