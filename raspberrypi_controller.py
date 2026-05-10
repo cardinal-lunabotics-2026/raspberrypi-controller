@@ -166,17 +166,17 @@ def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, l
     # Read output from Arduino and send to client
     if right_arduino.in_waiting > 0:
         right_arduino_output = right_arduino.readline().decode('utf-8')
-        print(f"[Right Arduino]: {right_arduino_output}")
+        #print(f"[Right Arduino]: {right_arduino_output}")
         client_socket.sendall(f"[Right Arduino]: {right_arduino_output}".encode('utf-8'))
 
     if left_arduino.in_waiting > 0:
         left_arduino_output = left_arduino.readline().decode('utf-8')
-        print(f"[Left Arduino]: {left_arduino_output}")
+        #print(f"[Left Arduino]: {left_arduino_output}")
         client_socket.sendall(f"[Left Arduino]: {left_arduino_output}".encode('utf-8'))
 
     if linear_arduino.in_waiting > 0:
         linear_arduino_output = linear_arduino.readline().decode('utf-8')
-        print(f"[Linear Arduino]: {linear_arduino_output}")
+        #print(f"[Linear Arduino]: {linear_arduino_output}")
         client_socket.sendall(f"[Linear Arduino]: {linear_arduino_output}".encode('utf-8'))
 
     # Used to send the heartbeat every 100 ms, may not be neccesary as the data from the arduinos could serve the same purpose
@@ -190,8 +190,8 @@ def map_to_torque(values: list[str]) -> list[str]:
     '''
 
     values = values.split(',', 1)
-    left_stick_mapped = -30 + (((int(values[0])+32676)*60)/65354)
-    right_stick_mapped = -30 + (((int(values[1])+32676)*60)/65354)
+    left_stick_mapped = 39 + (((int(values[0])+32676)*52)/65354)
+    right_stick_mapped = 39 + (((int(values[1])+32676)*52)/65354)
     return int(left_stick_mapped), int(right_stick_mapped)
 
 if __name__ == '__main__':
