@@ -184,7 +184,7 @@ def connection_loop(right_arduino: serial.Serial, left_arduino: serial.Serial, l
         client_socket.sendall("RPI Alive".encode('utf-8'))
         start_time = time.perf_counter() * 1000
 
-def map_to_torque(values: list[str]) -> list[str]:
+def map_to_torque(values: str) -> tuple:
     '''
     Maps -32678 <-> 32676 to -30 <-> 30
     '''
